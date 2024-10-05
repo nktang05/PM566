@@ -1,0 +1,242 @@
+---
+title: "lab6"
+author: "Nicole Tang"
+format: html
+embed-resources: true
+fig-width: 6
+fig-height: 4
+---
+
+```{r setup, message=FALSE, echo=FALSE, warning=FALSE}
+library(data.table)
+library(leaflet)
+library(tidyverse)
+library(data.table)
+library(R.utils)
+library(dplyr)
+library(ggplot2)
+library(lubridate)
+library(gganimate)
+library(ggforce)
+library(tidytext)
+```
+
+
+# Learning goals
+
+- Use `unnest_tokens()` and `unnest_ngrams()` to extract tokens and ngrams from text.
+- Use dplyr and ggplot2 to analyze text data
+
+# Lab description
+
+For this lab we will be working with a new dataset. The dataset contains transcription samples from https://www.mtsamples.com/. And is loaded and "fairly" cleaned at https://raw.githubusercontent.com/USCbiostats/data-science-data/master/00_mtsamples/mtsamples.csv.
+
+
+### Setup packages
+
+You should load in `dplyr`, (or `data.table` if you want to work that way), `ggplot2` and `tidytext`.
+If you don't already have `tidytext` then you can install with
+
+### read in Medical Transcriptions
+
+Loading in reference transcription samples from https://www.mtsamples.com/
+
+```{r}
+library(readr)
+library(dplyr)
+mt_samples <- read_csv("https://raw.githubusercontent.com/USCbiostats/data-science-data/master/00_mtsamples/mtsamples.csv")
+mt_samples <- mt_samples %>%
+  select(description, medical_specialty, transcription)
+
+head(mt_samples)
+```
+
+---
+
+## Question 1: What specialties do we have?
+
+We can use `count()` from `dplyr` to figure out how many different catagories do we have? Are these catagories related? overlapping? evenly distributed?
+
+```{r}
+mt_samples %>%
+  count(medical_specialty, sort = TRUE)
+
+head(mt_samples)
+```
+**40 categories, not evenly distributed**
+---
+
+## Question 2
+
+- Tokenize the the words in the `transcription` column
+- Count the number of times each token appears
+- Visualize the top 20 most frequent words
+
+Explain what we see from this result. Does it makes sense? What insights (if any) do we get?
+
+```{r}
+
+tokenize <- mt_samples %>%
+  unnest_tokens(token, transcription)
+
+tokenize %>%
+  count(token, sort = TRUE)
+
+tokenize %>%
+  count(token)  %>%
+  top_n(20, n)  %>%
+  ggplot(aes(n, token)) +
+  geom_col()
+
+```
+
+---
+
+## Question 3
+
+- Redo visualization but remove stopwords before
+- Bonus points if you remove numbers as well
+
+What do we see know that we have removed stop words? Does it give us a better idea of what the text is about?
+
+```{r}
+important_words <- tokenize %>%
+  anti_join(stop_words, by = c("token" = "word")) |>
+  filter(!str_detect(token, "^[0-9]+$")) |>
+  count(token, sort = TRUE)
+
+plotq3 <- important_words %>%
+  top_n(20, n)  %>%
+  ggplot(aes(n, token)) +
+  geom_col()
+
+print(plotq3)
+```
+
+---
+
+# Question 4
+
+repeat question 2, but this time tokenize into bi-grams. how does the result change if you look at tri-grams?
+
+```{r}
+bi <- mt_samples %>%
+  unnest_ngrams(ngram, transcription, n = 2)
+
+bi %>%
+  count(ngram, sort = TRUE)
+
+plotbi <- bi %>%
+  count(ngram)  %>%
+  top_n(20, n)  %>%
+  ggplot(aes(n, ngram)) +
+  geom_col()
+
+print(plotbi)
+```
+```{r}
+tri <- mt_samples %>%
+  unnest_ngrams(ngram, transcription, n = 3)
+
+tri %>%
+  count(ngram, sort = TRUE)
+
+plottri <- tri %>%
+  count(ngram)  %>%
+  top_n(20, n)  %>%
+  ggplot(aes(n, ngram)) +
+  geom_col()
+
+print(plottri)
+```
+
+
+---
+
+# Question 5
+
+Using the results you got from questions 4. Pick a word and count the words that appears after and before it.
+
+```{r}
+
+after <- bi %>%
+  separate(ngram, into = c("word1", "word2"), sep = " ") |>
+  select(word1, word2) |>
+  filter(word1 == "patient") |>
+  count(word2, sort = TRUE)
+
+
+
+before <- bi %>%
+  separate(ngram, into = c("word1", "word2"), sep = " ") |>
+  select(word1, word2) |>
+  filter(word2 == "patient") |>
+  count(word1, sort = TRUE)
+
+head(after)
+head(before)
+```
+
+
+---
+
+# Question 6 
+
+Which words are most used in each of the specialties. you can use `group_by()` and `top_n()` from `dplyr` to have the calculations be done within each specialty. Remember to remove stopwords. How about the most 5 used words?
+
+```{r}
+important_words_spec <- tokenize %>%
+  anti_join(stop_words, by = c("token" = "word")) |>
+  group_by(medical_specialty) |>
+  filter(!str_detect(token, "^[0-9]+$")) |>
+  count(token, sort = TRUE)
+
+plotq6 <- important_words_spec %>%
+  filter(medical_specialty == "Surgery") %>%  
+  top_n(5, n) %>%  
+  ggplot(aes(n, token)) + 
+  geom_col() +
+  labs(title = paste("Top 5 Words for Surgery"))
+
+print(plotq6)
+```
+
+
+
+
+
+# Question 7 - extra
+
+Find your own insight in the data:
+
+Ideas:
+
+- Interesting ngrams
+- See if certain words are used more in some specialties then others
+
+```{r}
+
+idf <- mt_samples |>
+  unnest_tokens(transcription, transcription) |>
+  count(transcription, medical_specialty) |>
+  bind_tf_idf(transcription, medical_specialty, n) |>
+  arrange(desc(tf_idf))
+
+head(idf)
+```
+
+
+```{r}
+get_sentiments('bing')
+
+bySpec <- mt_samples |>
+  unnest_tokens(token, transcription) |>
+  inner_join(get_sentiments("bing"), by = c("token" = "word")) |>
+  group_by(medical_specialty) |> 
+  summarise(sentiment = sum(sentiment == "positive") - sum(sentiment == "negative"))
+
+plotq7 <- barplot(bySpec$sentiment, names.arg = bySpec$medical_specialty)
+
+print(plotq7)
+
+```
