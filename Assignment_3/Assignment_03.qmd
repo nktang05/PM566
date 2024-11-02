@@ -1,0 +1,193 @@
+---
+title: "Assignment_03"
+author: "Nicole Tang"
+format: html
+embed-resources: true
+fig-width: 9
+fig-height: 4
+---
+```{r setup, message=FALSE, echo=FALSE, warning=FALSE}
+library(data.table)
+library(leaflet)
+library(tidyverse)
+library(data.table)
+library(R.utils)
+library(dplyr)
+library(ggplot2)
+library(lubridate)
+library(gganimate)
+library(ggforce)
+library(tidytext)
+library(tidyr)
+library(readr)
+library(dplyr)
+library(knitr)
+library(kableExtra)
+library(parallel)
+library(textdata)
+```
+
+## Due Date
+
+This assignment is due by 11:59pm Pacific Time, November 8th, 2024. 
+
+## Text Mining
+
+A new dataset has been added to the data science data repository <https://github.com/USCbiostats/data-science-data/tree/master/03_pubmed>. The dataset contains 3,241 abstracts from articles collected via 5 PubMed searches. The search terms are listed in the second column, `term` and these will serve as the "documents." Your job is to analyse these abstracts to find interesting insights.
+
+1.  Tokenize the abstracts and count the number of each token. Do you see anything interesting? Does removing stop words change what tokens appear as the most frequent? What are the 5 most common tokens for each search term after removing stopwords?
+```{r}
+#read in data
+data <- read_csv("pubmed.csv")
+head(data)
+```
+
+```{r}
+#tokenize
+tokenize <- data %>%
+  unnest_tokens(token, abstract)
+
+tokenize %>%
+  count(token, sort = TRUE)
+
+tokenize %>%
+  count(token)  %>%
+  top_n(20, n)  %>%
+  ggplot(aes(n, token)) +
+  geom_col()
+```
+**The top words before removing stop words appear to be stop words**
+```{r}
+#remove stop words
+important_words <- tokenize %>%
+  anti_join(stop_words, by = c("token" = "word")) |>
+  filter(!str_detect(token, "^[0-9]+$")) |>
+  count(token, sort = TRUE)
+
+plot <- important_words %>%
+  top_n(20, n)  %>%
+  arrange(desc(n)) %>%
+  ggplot(aes(x = n, y = reorder(token, n)))+
+  geom_col()
+
+print(plot)
+```
+**After removing stop words, the top words are covid, patients, cancer, postate, and disease**
+```{r}
+#group important words by term
+top5 <- data %>%
+  unnest_tokens(token, abstract) %>%
+  anti_join(stop_words, by = c("token" = "word")) %>%
+  filter(!str_detect(token, "^[0-9]+$")) %>%
+  group_by(term) %>%
+  count(token, sort = TRUE) %>%
+  slice_max(n, n = 5) %>%
+  ungroup() 
+
+print (top5)
+
+plot2 <- top5 %>%
+  arrange(desc(n)) %>%
+  ggplot(aes(x = n, y = reorder(token, n)))+
+  geom_col()
+
+print(plot2)
+
+```
+**The top words grouped by term**
+**covid- covid, patients, disease, pandemic, coronavirus**
+**cystic fibrosis- fibrosis, cystic, cf, patients, disease**
+**meningitis- patients, meningitis, meningeal, csf, clinical**
+**preclampsia- pre, eclpampsia, preexlampsia, women, pregnancy**
+**prostate cencer- cancer, prostate, patients, treatment, disease**
+
+**The top words by type appear to be related to the name**
+
+2.  Tokenize the abstracts into bigrams. Find the 10 most common bigrams and visualize them with ggplot2.
+
+```{r}
+#make bigrams
+bi <- data %>%
+  unnest_ngrams(ngram, abstract, n = 2)
+
+bi %>%
+  count(ngram, sort = TRUE)
+
+plotbi <- bi %>%
+  count(ngram)  %>%
+  top_n(10, n)  %>%
+  arrange(desc(n)) %>%
+  ggplot(aes(x = n, y = reorder(ngram, n))) +
+  geom_col()
+
+print(plotbi)
+```
+**The most popular bigrams are covid 19, of the, in the, and prostate cancer**
+
+3.  Calculate the TF-IDF value for each word-search term combination (here you want the search term to be the "document"). What are the 5 tokens from each search term with the highest TF-IDF value? How are the results different from the answers you got in question 1?
+```{r}
+#calculate tf-idf
+idf <- data |>
+  unnest_tokens(abstract, abstract) |>
+  count(abstract, term) |>
+  bind_tf_idf(abstract, term, n) |>
+  arrange(desc(tf_idf))
+
+head(idf)
+
+top_tf_idf <- idf %>%
+  group_by(term) %>%
+  slice_max(tf_idf, n = 5) %>%
+  ungroup()
+
+print(top_tf_idf)
+```
+**The top words grouped by term**
+**covid- covid, pandemic, sars, cov, coronavirus**
+**cystic fibrosis- fibrosis, cystic, cf, ctfr, sweat**
+**meningitis- meningitis, meningeal, pachmeningitis, csf, meninges**
+**preclampsia- maternal, eclpampsia, preeclampsia, gestational, pregnancy**
+**prostate cencer- androgen, prostate, psa, prostatectomy, castration**
+**These words differ from the tokenized words. They are more scientific and medical**
+
+## Sentiment Analysis
+
+1.  Perform a sentiment analysis using the NRC lexicon. What is the most common sentiment for each search term? What if you remove `"positive"` and `"negative"` from the list?
+```{r}
+
+get_sentiments('nrc')
+
+data |>
+  unnest_tokens(word, abstract) |>
+  inner_join(get_sentiments("nrc")) |> 
+  group_by(term) |> 
+  summarise(sentiment = names(which.max(table(sentiment))))
+  
+```
+**The top positive terms are covid, cystic fibrosis, and preeclampsia. The top negative terms are meningitis and prostate cancer**
+```{r}
+nrc_fun <- get_sentiments("nrc")
+nrc_fun <- nrc_fun[!nrc_fun$sentiment %in% c("positive","negative"), ]
+
+data |>
+  unnest_tokens(word, abstract) |>
+  inner_join(nrc_fun) |> 
+  group_by(term) |> 
+  summarise(sentiment = names(which.max(table(sentiment))))
+```
+**The top words are covid (fear), cystic fibrosis(disgust), meningitis (fear), preeclampsia(anticipation), and prostate cancer (fear)**
+
+
+2.  Now perform a sentiment analysis using the AFINN lexicon to get an average positivity score for each abstract (hint: you may want to create a variable that indexes, or counts, the abstracts). Create a visualization that shows these scores grouped by search term. Are any search terms noticeably different from the others?
+```{r}
+get_sentiments('afinn')
+
+avg_by_term <- data |>
+  unnest_tokens(word, abstract) |>
+  inner_join(get_sentiments("afinn")) |> 
+  group_by(term) |> 
+  summarise(sentiment = mean(value))
+
+barplot(avg_by_term$sentiment, names.arg = avg_by_term$term)
+```
+**Cystic fibrosis is positive while covid, meningitis, preeclampsia, and prostate cancer are negative**
